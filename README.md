@@ -13,9 +13,9 @@ Isso apagaria o catálogo. Crie um **projeto Pages novo**, ou envie só o `ligar
 
 ### Projeto novo
 1. Cloudflare → Workers & Pages → Create → Pages → Connect to Git
-2. Repositório: `saimo-ligar`
+2. Repositório: `nx-conexao`
 3. Framework: None · Build: vazio · Output: `/`
-4. Depois do deploy, a URL fica tipo `https://saimo-ligar.pages.dev/ligar.html`
+4. Depois do deploy, a URL fica tipo `https://nx-conexao.pages.dev/ligar.html`
 
 Se quiser o endereço `https://saimo-tv.pages.dev/ligar.html`, faça upload só deste `ligar.html` (e do `icon-512.png`) no projeto Pages **já existente**, sem trocar o Git do site.
 
