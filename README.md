@@ -1,23 +1,28 @@
-# Saimo TV · Ligar na TV
+# nx-conexao · Ligar na TV
 
-Página do QR (`/ligar.html`) no visual da [Saimo TV](https://saimo-tv.pages.dev/).
+Página do QR no visual da [Saimo TV](https://saimo-tv.pages.dev/).
 
-O celular manda Xtream / M3U para o Worker  
-`https://raspy-sunset-1e1a.michellcosta1269.workers.dev`  
-e a TV puxa o código.
+O celular envia para o Worker  
+`https://raspy-sunset-1e1a.michellcosta1269.workers.dev`
 
-## Cloudflare Pages (importante)
+## Se o Git entrou como Worker (sua tela atual)
 
-**Não ligue este repositório no projeto que já publica `saimo-tv.pages.dev`.**  
-Isso apagaria o catálogo. Crie um **projeto Pages novo**, ou envie só o `ligar.html` no projeto antigo.
+Isso **não é Pages**. O gráfico com Bindings / Observability é um Worker.
 
-### Projeto novo
-1. Cloudflare → Workers & Pages → Create → Pages → Connect to Git
-2. Repositório: `nx-conexao`
-3. Framework: None · Build: vazio · Output: `/`
-4. Depois do deploy, a URL fica tipo `https://nx-conexao.pages.dev/ligar.html`
+1. Espere o deploy depois deste `wrangler.toml`
+2. Abra o Worker **nx-conexao**
+3. Em **Domínios e rotas** (ou Settings → Domains), **ative** o `workers.dev`
+4. A URL fica `https://nx-conexao.michellcosta1269.workers.dev/ligar.html`
 
-Se quiser o endereço `https://saimo-tv.pages.dev/ligar.html`, faça upload só deste `ligar.html` (e do `icon-512.png`) no projeto Pages **já existente**, sem trocar o Git do site.
+## Se quiser Pages de verdade
 
-## Local
-Abra `ligar.html` no navegador. Sem o `?c=` da TV aparece “sem código”.
+Não use “Create Worker” / conectar Git no Worker.
+
+1. No menu: **Workers & Pages**
+2. **Create** → escolha **Pages** (não Worker)
+3. Connect to Git → `nx-conexao`
+4. Framework: None · build vazio · output `/`
+
+Se o nome `nx-conexao` já estiver ocupado pelo Worker, o Pages pode se chamar `nx-conexao-web`.
+
+**Não** conecte este repo no projeto do `saimo-tv.pages.dev`.
