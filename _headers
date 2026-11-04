@@ -1,4 +1,6 @@
 /*
-  Cache-Control: public, max-age=300
-/ligar.html
+  Cache-Control: public, max-age=60
+/ligar
+  Cache-Control: no-store
+/ligar/
   Cache-Control: no-store

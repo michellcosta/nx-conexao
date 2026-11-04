@@ -19,6 +19,6 @@ O celular envia para
    - Build output directory: `/`
 7. **Save and Deploy**
 
-URL: `https://nx-conexao.pages.dev/ligar.html`
+URL: `https://nx-conexao.pages.dev/ligar`
 
 Não conecte este repo no projeto do `saimo-tv.pages.dev`.
