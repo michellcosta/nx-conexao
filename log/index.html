@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saimo TV · Log da TV</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #0b1020; color: #dfe7ff; font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #8ea2d8; font-size: 13px; margin-bottom: 18px; }
+  .linha { display: flex; gap: 8px; margin-bottom: 14px; }
+  input { background: #131a33; border: 1px solid #2a3a6e; color: #fff; border-radius: 8px; padding: 10px 12px; font-size: 16px; text-transform: uppercase; width: 9ch; letter-spacing: 2px; }
+  button { background: #2f6bff; color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 15px; cursor: pointer; }
+  button.sec { background: #1d274d; }
+  #estado { font-size: 13px; color: #8ea2d8; min-height: 20px; }
+  #meta { font-size: 13px; color: #9fd8ff; margin: 10px 0; white-space: pre-wrap; }
+  pre { background: #0e1529; border: 1px solid #1c2a55; border-radius: 10px; padding: 14px; font: 12.5px/1.55 Consolas, monospace; color: #7dffb3; white-space: pre-wrap; overflow: auto; max-height: 46vh; }
+  pre.ev { color: #ffd27d; max-height: 30vh; }
+</style>
+</head>
+<body>
+  <h1>Log da TV · Saimo TV</h1>
+  <div class="sub">Digite o ID que aparece no HUD da TV (tecla VERDE no player) e acompanhe ao vivo.</div>
+  <div class="linha">
+    <input id="id" maxlength="8" placeholder="ABCD23" autocomplete="off">
+    <button id="ver">Ver log</button>
+    <button id="parar" class="sec">Parar</button>
+  </div>
+  <div id="estado"></div>
+  <div id="meta"></div>
+  <pre id="linhas">—</pre>
+  <div class="sub" style="margin-top:14px">Eventos</div>
+  <pre class="ev" id="eventos">—</pre>
+
+<script>
+(function () {
+  "use strict";
+  var API = "https://nx-conexao.pages.dev/v1/diag/";
+  var timer = 0;
+  var el = function (i) { return document.getElementById(i); };
+
+  function estado(msg, erro) {
+    el("estado").textContent = msg || "";
+    el("estado").style.color = erro ? "#ff8f8f" : "#8ea2d8";
+  }
+
+  function mostrar(j) {
+    var meta = [];
+    meta.push("TV " + (j.tv || "?") + (j.versao ? " · " + j.versao : ""));
+    if (j.sistema) meta.push(j.sistema);
+    if (j.memoria) meta.push("memória: " + j.memoria);
+    meta.push("recebido às " + (j.recebido || "?"));
+    el("meta").textContent = meta.join("  ·  ");
+    el("linhas").textContent = (j.linhas || []).join("\n") || "—";
+    var ev = (j.eventos || []).map(function (e) {
+      return "[" + (e.data || "") + "] " + (e.tipo || "") + (e.detalhe ? " · " + e.detalhe : "");
+    });
+    el("eventos").textContent = ev.join("\n") || "—";
+  }
+
+  function buscar() {
+    var id = el("id").value.trim().toUpperCase();
+    if (!id) { estado("Digite o ID da TV.", true); return; }
+    var x = new XMLHttpRequest();
+    x.open("GET", API + encodeURIComponent(id), true);
+    x.timeout = 12000;
+    x.onload = function () {
+      try {
+        var j = JSON.parse(x.responseText || "{}");
+        if (x.status >= 200 && x.status < 300) { mostrar(j); estado("Atualizado " + new Date().toLocaleTimeString() + " · renovando em 5s"); }
+        else estado(j.error || ("HTTP " + x.status), true);
+      } catch (e) { estado("Resposta inválida", true); }
+    };
+    x.onerror = function () { estado("Sem conexão com o servidor", true); };
+    x.ontimeout = function () { estado("Tempo esgotado", true); };
+    x.send();
+  }
+
+  function iniciar() {
+    if (timer) clearInterval(timer);
+    buscar();
+    timer = setInterval(buscar, 5000);
+  }
+
+  el("ver").addEventListener("click", iniciar);
+  el("id").addEventListener("keydown", function (ev) { if (ev.key === "Enter") iniciar(); });
+  el("parar").addEventListener("click", function () { if (timer) clearInterval(timer); timer = 0; estado("Parado."); });
+  var pre = "";
+  try { pre = (location.search || "").replace(/^\?*/, ""); } catch (e) {}
+  if (/^[A-Z0-9]{4,8}$/i.test(pre)) { el("id").value = pre.toUpperCase(); iniciar(); }
+})();
+</script>
+</body>
+</html>
