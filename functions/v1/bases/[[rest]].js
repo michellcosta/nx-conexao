@@ -75,6 +75,9 @@ export async function onRequest(context) {
     if (!acao && request.method === "GET") {
       const item = await ler();
       if (!item) return json({ error: "bases ainda não definidas" }, 404);
+      // TTL deslizante: cada consulta da TV renova os 24 h — as bases só
+      // expiram se NENHUM aparelho pedir por um dia inteiro.
+      await gravar(item);
       return json(item);
     }
 
