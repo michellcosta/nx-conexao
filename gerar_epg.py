@@ -9,6 +9,7 @@ import re
 import time
 import unicodedata
 import urllib.request
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +20,24 @@ EPG_URLS = [
     "https://iptv-epg.org/files/epg-br.xml",
     "https://www.open-epg.com/files/brazil3.xml",
 ]
+MAX_PROG = 14
+MAX_DESC = 120
+STOP = {"tv", "canal", "rede", "br", "the", "channel"}
+UFS = {"sp", "rj", "mg", "df", "es", "go", "rs", "pr", "ba", "pe", "ce", "am", "pa"}
+PREF = {
+    "globo": ("globo sp", "tv globo sao paulo", "globo sao paulo", "rede globo"),
+    "band": ("band", "band sp", "band brasil"),
+    "sbt": ("sbt", "sbt sp", "sbt brasil"),
+    "record": ("recordtv", "recordtv sp", "record br"),
+    "cnn": ("cnn brasil",),
+    "sony": ("sony", "sony channel"),
+    "warner": ("warner", "warner channel"),
+    "universal": ("universal", "universal tv", "universal channel"),
+    "nickelodeon": ("nick",),
+    "nicktoons": ("nick jr",),
+    "agro mais": ("agromais", "agromais br"),
+    "agro": ("agromais", "agromais br"),
+}
 
 
 def fold(s: str) -> str:
@@ -43,7 +62,7 @@ def decode_ent(s: str) -> str:
 def norm_canal(s: str) -> str:
     s = fold(decode_ent(s))
     s = re.sub(r"^(tv|canal|rede|br)\s+", "", s)
-    s = re.sub(r"\b(fhd|uhd|4k|8k|full hd|hd|sd|hevc|h265|h264)\b", " ", s)
+    s = re.sub(r"\b(fhd|uhd|4k|8k|full hd|hd|sd|hevc|h265|h264|backup|option|feed)\b", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     s = re.sub(r"\s+brasil$", "", s)
     aliases = {
@@ -59,8 +78,45 @@ def norm_canal(s: str) -> str:
         "warner channel": "warner",
         "sony channel": "sony",
         "record tv": "record",
+        "hbo 2": "hbo2",
+        "hbo mais": "hbo plus",
+        "band sports": "bandsports",
+        "band sports hd": "bandsports",
+        "sport tv": "sportv",
+        "sport tv 2": "sportv 2",
+        "sport tv 3": "sportv 3",
+        "discovery id": "investigacao discovery",
+        "investigation discovery": "investigacao discovery",
+        "nickelodeon": "nick",
+        "nicktoons brasil": "nick jr",
+        "nicktoons": "nick jr",
+        "nickonline": "nick",
+        "agro mais": "agromais",
+        "canal agro": "agromais",
+        "agro": "agromais",
+        "record sp": "recordtv sp",
+        "record rj": "record tv rj",
+        "record go": "record tv goias",
     }
     return aliases.get(s, s)
+
+
+def compact(s: str) -> str:
+    t = (s or "").replace(" ", "")
+    if t.endswith("br") and len(t) > 4:
+        t = t[:-2]
+    return t
+
+
+def tokens_flex(s: str):
+    out = []
+    for t in (s or "").split():
+        if t in STOP:
+            continue
+        if len(t) > 4 and t.endswith("tv"):
+            t = t[:-2]
+        out.append(t)
+    return out
 
 
 def pedir_texto(url: str, timeout: int = 90) -> str:
@@ -112,54 +168,72 @@ def nomes_catalogo():
     return nomes
 
 
-def gerar():
-    nomes = nomes_catalogo()
-    wanted = {}
-    for n in nomes:
-        wanted.setdefault(norm_canal(n), n)
+def escolher_xml_key(key: str, xml_keys) -> str | None:
+    if not key:
+        return None
+    if key in xml_keys:
+        return key
+    ck = compact(key)
+    for k in xml_keys:
+        if compact(k) == ck:
+            return k
+    for pref in PREF.get(key, ()):
+        if pref in xml_keys:
+            return pref
+        pk = compact(pref)
+        for k in xml_keys:
+            if compact(k) == pk:
+                return k
+    prefix = [k for k in xml_keys if k.startswith(key + " ")]
+    if prefix:
+        prefix.sort(key=lambda k: (len(k.split()), len(k)))
+        return prefix[0]
+    shorter = [k for k in xml_keys if key.startswith(k + " ") and len(k) >= 3]
+    if shorter:
+        shorter.sort(key=lambda k: -len(k))
+        return shorter[0]
+    ct = tokens_flex(key)
+    iguais = [k for k in xml_keys if tokens_flex(k) == ct]
+    if iguais:
+        iguais.sort(key=len)
+        return iguais[0]
+    toks = [t for t in key.split() if t not in STOP]
+    if not toks:
+        return None
+    scored = []
+    for k in xml_keys:
+        kt = tokens_flex(k)
+        kset = set(kt)
+        if ct and all(t in kset for t in ct):
+            scored.append((0, len(kt), k))
+            continue
+        if len(ct) >= 2 and ct[-1] in UFS and ct[:-1] == kt:
+            scored.append((1, len(kt), k))
+            continue
+        old = set(k.split())
+        if all(t in old for t in toks):
+            scored.append((2, len(k.split()) - len(toks), k))
+    if scored:
+        scored.sort()
+        return scored[0][2]
+    return None
 
-    xml = b""
-    for url in EPG_URLS:
-        try:
-            print("baixando", url)
-            xml = baixar_bytes(url)
-            if b"<programme" in xml:
-                break
-        except Exception as e:
-            print("falhou", url, e)
-            xml = b""
-    if not xml:
-        raise SystemExit("EPG remoto indisponível")
 
-    text = xml.decode("utf-8", errors="replace")
-    name_to_ids = {}
+def parse_xmltv(text: str):
+    id_meta = {}
     for m in re.finditer(r'<channel id="([^"]+)">([\s\S]*?)</channel>', text):
         cid, body = m.group(1), m.group(2)
         dn = re.search(r"<display-name[^>]*>([^<]+)</display-name>", body)
         if not dn:
             continue
-        key = norm_canal(dn.group(1))
-        name_to_ids.setdefault(key, []).append(cid)
+        raw = decode_ent(dn.group(1)).strip()
+        key = norm_canal(raw)
+        if key:
+            id_meta[cid] = (key, raw)
+    return id_meta
 
-    xml_to_ours = {}
-    if wanted:
-        for key, nome in wanted.items():
-            ids = name_to_ids.get(key)
-            if not ids:
-                cands = [k for k in name_to_ids if k.startswith(key + " ") or key.startswith(k + " ")]
-                if len(cands) == 1:
-                    ids = name_to_ids[cands[0]]
-            if ids:
-                for i in ids:
-                    xml_to_ours[i] = nome
-    else:
-        for key, ids in name_to_ids.items():
-            for i in ids:
-                xml_to_ours[i] = key
 
-    agora = int(time.time() * 1000)
-    frm, to = agora - 3600_000, agora + 6 * 3600_000
-    canais = {}
+def programas_da_janela(text: str, id_meta, frm: int, to: int, dest: dict, nomes: dict):
     for m in re.finditer(r'<programme\s+([^>]+)>([\s\S]*?)</programme>', text):
         attrs, body = m.group(1), m.group(2)
         ch = re.search(r'channel="([^"]+)"', attrs)
@@ -167,9 +241,10 @@ def gerar():
         sp = re.search(r'stop="([^"]+)"', attrs)
         if not (ch and st and sp):
             continue
-        nosso = xml_to_ours.get(ch.group(1))
-        if not nosso:
+        meta = id_meta.get(ch.group(1))
+        if not meta:
             continue
+        key, raw = meta
         start = xmltv_date(st.group(1))
         stop = xmltv_date(sp.group(1))
         if not start or not stop or stop <= frm or start >= to:
@@ -179,24 +254,83 @@ def gerar():
             continue
         desc = re.search(r"<desc[^>]*>([^<]+)</desc>", body)
         d = decode_ent(desc.group(1) if desc else "").strip()
-        if len(d) > 120:
-            d = d[:117] + "…"
-        lista = canais.setdefault(nosso, [])
-        if len(lista) >= 14:
+        if len(d) > MAX_DESC:
+            d = d[: MAX_DESC - 3] + "…"
+        lista = dest.setdefault(key, [])
+        if len(lista) >= MAX_PROG:
             continue
-        lista.append({
-            "title": decode_ent(tm.group(1)).strip(),
-            "desc": d,
-            "start": start,
-            "stop": stop,
-        })
+        title = decode_ent(tm.group(1)).strip()
+        if any(p["start"] == start and p["title"] == title for p in lista):
+            continue
+        lista.append({"title": title, "desc": d, "start": start, "stop": stop})
+        nomes.setdefault(key, raw)
+
+
+def gerar():
+    nomes_cat = nomes_catalogo()
+
+    agora = int(time.time() * 1000)
+    frm, to = agora - 3600_000, agora + 6 * 3600_000
+    progs = {}
+    xml_nomes = {}
+    algum = False
+    for url in EPG_URLS:
+        try:
+            print("baixando", url)
+            xml = baixar_bytes(url)
+        except Exception as e:
+            print("falhou", url, e)
+            continue
+        if b"<programme" not in xml:
+            print("sem programme", url)
+            continue
+        algum = True
+        text = xml.decode("utf-8", errors="replace")
+        programas_da_janela(text, parse_xmltv(text), frm, to, progs, xml_nomes)
+    if not algum or not progs:
+        raise SystemExit("EPG remoto indisponível")
+
+    xml_keys = list(progs.keys())
+    canais = {}
+
+    def colocar(rotulo: str, key: str):
+        lista = progs.get(key)
+        if not rotulo or not lista:
+            return
+        prev = canais.get(rotulo)
+        if not prev or len(lista) > len(prev):
+            canais[rotulo] = lista
+
+    usados = set()
+    for nome in nomes_cat:
+        xml_key = escolher_xml_key(norm_canal(nome), xml_keys)
+        if not xml_key:
+            continue
+        usados.add(xml_key)
+        colocar(nome, xml_key)
+        xml_nome = xml_nomes.get(xml_key)
+        if xml_nome and xml_nome != nome:
+            colocar(xml_nome, xml_key)
+
+    for xml_key, xml_nome in xml_nomes.items():
+        if xml_key in usados:
+            continue
+        if xml_key not in progs:
+            continue
+        rotulo = xml_nome or xml_key
+        if rotulo not in canais:
+            colocar(rotulo, xml_key)
 
     for lista in canais.values():
         lista.sort(key=lambda p: p["start"])
+
     saida = {"updated": agora, "janelaHoras": 6, "channels": canais}
     dest = RAIZ / "epg.json"
     dest.write_text(json.dumps(saida, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"epg.json: {len(canais)} canais, {sum(len(v) for v in canais.values())} programas, {dest.stat().st_size} bytes")
+    print(
+        f"epg.json: {len(canais)} nomes, {len(usados)} do catálogo, "
+        f"{sum(len(v) for v in canais.values())} programas, {dest.stat().st_size} bytes"
+    )
 
 
 if __name__ == "__main__":
