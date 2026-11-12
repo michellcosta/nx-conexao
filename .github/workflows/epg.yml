@@ -1,0 +1,30 @@
+# Gera epg.json e commita. O Pages (já ligado a este repo) publica sozinho.
+name: EPG
+
+on:
+  schedule:
+    - cron: "20 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: epg
+  cancel-in-progress: true
+
+jobs:
+  gerar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Gerar epg.json
+        run: python gerar_epg.py
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "epg: atualiza grade de 6 h"
+          file_pattern: epg.json

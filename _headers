@@ -1,5 +1,9 @@
 /*
   Cache-Control: public, max-age=60
+  Access-Control-Allow-Origin: *
+/epg.json
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
 /ligar
   Cache-Control: no-store
 /ligar/
